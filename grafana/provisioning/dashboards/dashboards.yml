@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: DAC learning demo
+    folder: DAC Learning Demo
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+

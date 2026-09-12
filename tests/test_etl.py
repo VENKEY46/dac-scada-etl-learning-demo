@@ -1,65 +1,31 @@
-"""Tests for the SCADA ETL validation logic.
-
-Simple English: each test builds a tiny fake table of 1-2 rows,
-runs it through validate_and_transform, and checks the result is
-what we expect. This proves the rules actually work, not just that
-the script runs without crashing.
-"""
-from __future__ import annotations
+import unittest
 
 import pandas as pd
 
 from run_etl import validate_and_transform
+from test_validation import valid_reading
 
 
-def _make_row(**overrides):
-    """A single 'good' reading. Tests override one field to break it."""
-    row = {
-        "timestamp_utc": "2026-01-01T00:00:00Z",
-        "plant_id": "PLANT_1",
-        "temperature_c": 25.0,
-        "pressure_kpa": 100.0,
-        "airflow_m3_h": 5000.0,
-        "co2_in_ppm": 420.0,
-        "co2_out_ppm": 300.0,
-        "fan_power_kw": 10.0,
-        "capture_rate_kg_h": 5.0,
-    }
-    row.update(overrides)
-    return row
+class EtlTests(unittest.TestCase):
+    def test_duplicate_is_logged_and_latest_row_is_kept(self):
+        first = valid_reading()
+        second = valid_reading()
+        first["temperature_c"] = 24.0
+        clean, rejected, stats = validate_and_transform(pd.DataFrame([first, second]))
+        self.assertEqual(len(clean), 1)
+        self.assertEqual(clean.iloc[0]["temperature_c"], 25.0)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(stats["duplicates_removed"], 1)
+
+    def test_invalid_numeric_text_is_rejected(self):
+        row = valid_reading()
+        row["pressure_kpa"] = "not-a-number"
+        clean, rejected, _ = validate_and_transform(pd.DataFrame([row]))
+        self.assertTrue(clean.empty)
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("pressure_kpa", rejected.iloc[0]["rejection_reason"])
 
 
-def test_valid_row_is_kept():
-    df = pd.DataFrame([_make_row()])
-    clean, stats = validate_and_transform(df)
-    assert len(clean) == 1
-    assert stats["valid_records_loaded"] == 1
-    assert stats["range_or_logic_records_removed"] == 0
+if __name__ == "__main__":
+    unittest.main()
 
-
-def test_duplicate_timestamp_is_removed():
-    df = pd.DataFrame([_make_row(), _make_row()])  # exact duplicate
-    clean, stats = validate_and_transform(df)
-    assert len(clean) == 1
-    assert stats["duplicates_removed"] == 1
-
-
-def test_out_of_range_temperature_is_rejected():
-    df = pd.DataFrame([_make_row(temperature_c=200.0)])  # impossible value
-    clean, stats = validate_and_transform(df)
-    assert len(clean) == 0
-    assert stats["range_or_logic_records_removed"] == 1
-
-
-def test_outlet_co2_must_be_lower_than_inlet():
-    # physically impossible: more CO2 leaving than entering
-    df = pd.DataFrame([_make_row(co2_in_ppm=400.0, co2_out_ppm=450.0)])
-    clean, stats = validate_and_transform(df)
-    assert len(clean) == 0
-
-
-def test_missing_required_value_is_removed():
-    df = pd.DataFrame([_make_row(temperature_c=None)])
-    clean, stats = validate_and_transform(df)
-    assert len(clean) == 0
-    assert stats["missing_records_removed"] == 1

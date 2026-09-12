@@ -1,0 +1,57 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "datasource": {"type": "influxdb", "uid": "influxdb-dac"},
+      "fieldConfig": {"defaults": {"unit": "ppm"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [
+        {
+          "query": "from(bucket: v.defaultBucket) |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"plant_readings\") |> filter(fn: (r) => r._field == \"co2_in_ppm\" or r._field == \"co2_out_ppm\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Live CO2 Inlet and Outlet",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "influxdb", "uid": "influxdb-dac"},
+      "fieldConfig": {"defaults": {"unit": "kg/h"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9},
+      "id": 2,
+      "targets": [
+        {
+          "query": "from(bucket: v.defaultBucket) |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"plant_readings\" and r._field == \"capture_rate_kg_h\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Capture Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "influxdb", "uid": "influxdb-dac"},
+      "fieldConfig": {"defaults": {"unit": "kW"}, "overrides": []},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9},
+      "id": 3,
+      "targets": [
+        {
+          "query": "from(bucket: v.defaultBucket) |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r._measurement == \"plant_readings\" and r._field == \"fan_power_kw\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Fan Power",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["dac", "synthetic", "learning-demo"],
+  "time": {"from": "now-15m", "to": "now"},
+  "timezone": "browser",
+  "title": "DAC Plant - Live Learning Demo",
+  "uid": "dac-live-demo",
+  "version": 1
+}
+

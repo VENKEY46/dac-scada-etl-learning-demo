@@ -1,8 +1,8 @@
-__pycache__/
-*.py[cod]
-.venv/
-venv/
 .env
-.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
 data/processed/*.db
-data/processed/*.sqlite
+output/rejected_stream_records.csv
+

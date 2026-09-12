@@ -1,0 +1,7 @@
+timestamp_utc,plant_id,source_tag,temperature_c,pressure_kpa,airflow_m3_h,co2_in_ppm,co2_out_ppm,fan_power_kw,capture_rate_kg_h,rejection_reason
+2026-09-01 20:50:00+00:00,DAC-DEMO-01,OPCUA_SIMULATOR,24.9,102.39,4642.78,427.58,235.97,32.21,1.744,duplicate timestamp and plant_id
+2026-09-02 09:20:00+00:00,DAC-DEMO-01,OPCUA_SIMULATOR,25.57,101.79,4797.44,427.75,265.86,32.8,1.522,duplicate timestamp and plant_id
+2026-09-01 02:55:00+00:00,DAC-DEMO-01,OPCUA_SIMULATOR,,101.98,4955.01,423.15,226.08,37.97,1.914,missing required value: temperature_c
+2026-09-01 10:00:00+00:00,DAC-DEMO-01,OPCUA_SIMULATOR,21.96,102.41,-20.0,426.8,228.31,38.0,2.076,airflow_m3_h out of range
+2026-09-01 18:20:00+00:00,DAC-DEMO-01,OPCUA_SIMULATOR,25.68,102.22,4537.75,421.08,900.0,32.79,1.673,co2_out_ppm out of range; outlet CO2 not lower than inlet CO2
+2026-09-02 03:30:00+00:00,DAC-DEMO-01,OPCUA_SIMULATOR,22.0,100.18,5097.78,429.88,268.73,500.0,1.61,fan_power_kw out of range

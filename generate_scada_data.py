@@ -21,8 +21,8 @@ def main() -> None:
     random.seed(RANDOM_SEED)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
-    # Fixed start time keeps the example reproducible across machines and runs.
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # A fixed start time makes the complete generated file reproducible.
+    start = datetime(2026, 9, 1, 0, 0, tzinfo=timezone.utc)
     readings: list[dict[str, object]] = []
 
     # One SCADA historian record every five minutes for two days.

@@ -13,100 +13,61 @@ import sqlite3
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from validation import NUMERIC_RANGES, validate_reading
+
 
 RAW_FILE = Path("data/raw/dac_scada_readings.csv")
 DATABASE = Path("data/processed/dac_scada.db")
 REPORT = Path("output/etl_run_summary.md")
 DASHBOARD = Path("output/dac_plant_dashboard.png")
 REJECTED = Path("output/rejected_records.csv")
-NOMINAL_CAPTURE_EFFICIENCY = 0.42
-NOMINAL_CAPACITY_KG_H = 10.0
 
 
-def validate_and_transform(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
-    """Return clean sensor records and counts useful for an ETL log."""
+def validate_and_transform(
+    raw: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    """Return trusted rows, rejected rows with reasons, and run statistics."""
     stats = {"raw_records": len(raw)}
     data = raw.copy()
     data["timestamp_utc"] = pd.to_datetime(data["timestamp_utc"], utc=True, errors="coerce")
-    data = data.sort_values("timestamp_utc").drop_duplicates(
-        subset=["timestamp_utc", "plant_id"], keep="last"
-    )
-    stats["duplicates_removed"] = stats["raw_records"] - len(data)
+    for field in NUMERIC_RANGES:
+        data[field] = pd.to_numeric(data[field], errors="coerce")
+    data = data.sort_values("timestamp_utc", na_position="last")
 
-    required = [
-        "timestamp_utc", "temperature_c", "pressure_kpa", "airflow_m3_h",
-        "co2_in_ppm", "co2_out_ppm", "fan_power_kw", "capture_rate_kg_h",
-    ]
-    before_missing = len(data)
-    data = data.dropna(subset=required)
-    stats["missing_records_removed"] = before_missing - len(data)
+    duplicate_mask = data.duplicated(subset=["timestamp_utc", "plant_id"], keep="last")
+    duplicate_rows = data.loc[duplicate_mask].copy()
+    duplicate_rows["rejection_reason"] = "duplicate timestamp and plant_id"
+    candidates = data.loc[~duplicate_mask].copy()
 
-    # Simple engineering plausibility ranges for this *simulated* learning plant.
-    valid = (
-        data["temperature_c"].between(5, 60)
-        & data["pressure_kpa"].between(90, 110)
-        & data["airflow_m3_h"].between(100, 10_000)
-        & data["co2_in_ppm"].between(350, 600)
-        & data["co2_out_ppm"].between(100, 600)
-        & (data["co2_out_ppm"] < data["co2_in_ppm"])
-        & data["fan_power_kw"].between(1, 100)
-        & data["capture_rate_kg_h"].between(0.01, 20)
-    )
-    stats["range_or_logic_records_removed"] = int((~valid).sum())
+    reasons = candidates.apply(lambda row: validate_reading(row.to_dict()), axis=1)
+    valid_mask = reasons.map(len).eq(0)
+    clean = candidates.loc[valid_mask].copy()
+    invalid_rows = candidates.loc[~valid_mask].copy()
+    invalid_rows["rejection_reason"] = reasons.loc[~valid_mask].map("; ".join)
+    rejected = pd.concat([duplicate_rows, invalid_rows], ignore_index=True)
 
-    # Keep the rejected rows with a plain-English reason, instead of just
-    # deleting them. A real plant engineer wants to know WHY a reading was
-    # rejected, not just how many were rejected.
-    rejected = data.loc[~valid].copy()
-    if not rejected.empty:
-        reasons = []
-        for _, row in rejected.iterrows():
-            row_reasons = []
-            if not (5 <= row["temperature_c"] <= 60):
-                row_reasons.append("temperature out of range")
-            if not (90 <= row["pressure_kpa"] <= 110):
-                row_reasons.append("pressure out of range")
-            if not (100 <= row["airflow_m3_h"] <= 10_000):
-                row_reasons.append("airflow out of range")
-            if not (350 <= row["co2_in_ppm"] <= 600):
-                row_reasons.append("CO2 inlet out of range")
-            if not (100 <= row["co2_out_ppm"] <= 600):
-                row_reasons.append("CO2 outlet out of range")
-            if row["co2_out_ppm"] >= row["co2_in_ppm"]:
-                row_reasons.append("outlet CO2 not lower than inlet CO2")
-            if not (1 <= row["fan_power_kw"] <= 100):
-                row_reasons.append("fan power out of range")
-            if not (0.01 <= row["capture_rate_kg_h"] <= 20):
-                row_reasons.append("capture rate out of range")
-            reasons.append("; ".join(row_reasons) if row_reasons else "unknown")
-        rejected["rejection_reason"] = reasons
-        REJECTED.parent.mkdir(parents=True, exist_ok=True)
-        rejected.to_csv(REJECTED, index=False)
-
-    clean = data.loc[valid].copy()
+    stats["duplicates_removed"] = int(duplicate_mask.sum())
+    stats["invalid_records_removed"] = len(invalid_rows)
+    stats["rejected_records_logged"] = len(rejected)
 
     clean["co2_removed_ppm"] = (clean["co2_in_ppm"] - clean["co2_out_ppm"]).round(2)
     clean["energy_intensity_kwh_per_kg"] = (
         clean["fan_power_kw"] / clean["capture_rate_kg_h"]
     ).round(2)
-    clean["capture_efficiency_pct"] = (
-        clean["co2_removed_ppm"] / clean["co2_in_ppm"] * 100
-    ).round(2)
-    clean["cycle_performance_pct"] = (
-        clean["capture_efficiency_pct"] / (NOMINAL_CAPTURE_EFFICIENCY * 100) * 100
-    ).round(2)
-    clean["capacity_utilisation_pct"] = (
-        clean["capture_rate_kg_h"] / NOMINAL_CAPACITY_KG_H * 100
-    ).round(2)
     clean["quality_status"] = "VALID"
     stats["valid_records_loaded"] = len(clean)
-    return clean, stats
+    return clean, rejected, stats
 
 
 def load_to_sqlite(clean: pd.DataFrame) -> None:
     DATABASE.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DATABASE) as connection:
         clean.to_sql("plant_readings", connection, if_exists="replace", index=False)
+
+
+def write_rejected_records(rejected: pd.DataFrame) -> None:
+    REJECTED.parent.mkdir(parents=True, exist_ok=True)
+    rejected.to_csv(REJECTED, index=False)
 
 
 def create_dashboard(clean: pd.DataFrame) -> None:
@@ -137,9 +98,6 @@ def write_report(clean: pd.DataFrame, stats: dict[str, int]) -> None:
         "Average capture rate": f"{clean['capture_rate_kg_h'].mean():.2f} kg/h",
         "Average fan power": f"{clean['fan_power_kw'].mean():.1f} kW",
         "Average energy intensity": f"{clean['energy_intensity_kwh_per_kg'].mean():.1f} kWh/kg",
-        "Average capture efficiency": f"{clean['capture_efficiency_pct'].mean():.1f}%",
-        "Average cycle performance": f"{clean['cycle_performance_pct'].mean():.1f}% of nominal",
-        "Average capacity utilisation": f"{clean['capacity_utilisation_pct'].mean():.1f}% of nominal",
     }
     lines = ["# SCADA ETL Run Summary", "", "## Data-quality results", ""]
     lines += [f"- **{name.replace('_', ' ').title()}:** {value}" for name, value in stats.items()]
@@ -148,7 +106,7 @@ def write_report(clean: pd.DataFrame, stats: dict[str, int]) -> None:
     lines += [
         "", "## What this proves", "",
         "This learning demo simulates the basic flow from plant readings to trusted data for analysis.",
-        "The values and validation ranges are synthetic; they are not DACMA plant data or DACMA system settings.",
+        "The values and validation ranges are synthetic; they are not real plant data or company system settings.",
     ]
     REPORT.write_text("\n".join(lines), encoding="utf-8")
 
@@ -157,7 +115,8 @@ def main() -> None:
     if not RAW_FILE.exists():
         raise FileNotFoundError("Run `python generate_scada_data.py` first.")
     raw = pd.read_csv(RAW_FILE)
-    clean, stats = validate_and_transform(raw)
+    clean, rejected, stats = validate_and_transform(raw)
+    write_rejected_records(rejected)
     load_to_sqlite(clean)
     create_dashboard(clean)
     write_report(clean, stats)
@@ -165,6 +124,7 @@ def main() -> None:
     print(f"Database: {DATABASE}")
     print(f"Dashboard: {DASHBOARD}")
     print(f"Summary: {REPORT}")
+    print(f"Rejected records: {REJECTED}")
 
 
 if __name__ == "__main__":
