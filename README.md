@@ -1,42 +1,68 @@
 # Synthetic DAC Plant Data Pipeline
 
-A reproducible Python data pipeline for analysing synthetic Direct Air Capture plant readings. The project demonstrates a practical time-series workflow: generate historian-style data, validate sensor records, calculate operational KPIs, store trusted data in SQLite, and produce a monitoring report and dashboard.
+A small, honest learning project that shows how plant sensor data can be collected, checked, and turned into useful information — built to practise the kind of data pipeline used in real industrial monitoring systems.
 
-> This is an independent learning project. It uses synthetic data and does not contain proprietary plant data, internal software, or company-specific operating limits.
+> **This is an independent learning project.** It uses synthetic (made-up) data only. It does not contain real DACMA plant data, real company systems, or real operating limits.
 
-## Project workflow
+## What this project does, in one sentence
 
-```text
-Synthetic historian data → quality checks → engineered KPIs → SQLite → dashboard/report
+It takes raw plant sensor readings, checks whether each reading makes physical sense, keeps only the trustworthy ones, and turns them into a database, a dashboard, and a summary report.
+
+## Pipeline diagram
+
+```mermaid
+flowchart TD
+    A[Synthetic historian data<br/>generate_scada_data.py] --> B[Validate and transform<br/>dedupe, range and logic checks]
+    B --> C[Rejected records<br/>logged with reason]
+    B --> D[Trusted records<br/>valid, deduped rows]
+    D --> E[SQLite database<br/>plant_readings table]
+    D --> F[Dashboard PNG<br/>CO2 and capture chart]
+    D --> G[Run summary<br/>KPIs and quality stats]
 ```
 
-## Key questions answered
+## Questions this project can answer
 
 - How much CO₂ is removed between the inlet and outlet streams?
 - Is the capture rate stable over time?
-- What is the estimated adsorption/absorption performance of the simulated cycle?
-- How much capture capacity is available relative to the defined nominal capacity?
-- How much fan energy is used per kilogram of captured CO₂?
-- Which records should be trusted for downstream analysis?
+- How efficient is the simulated capture cycle compared to a defined target?
+- How much fan energy is used per kilogram of CO₂ captured?
+- Which sensor readings should be trusted, and which should be rejected — and why?
+
+## How the data is checked (data quality)
+
+Every reading has to pass these checks before it is trusted:
+
+1. **No duplicates** — the same timestamp and plant ID is only kept once.
+2. **No missing values** — a reading with a missing field is dropped.
+3. **Realistic ranges** — temperature, pressure, airflow, CO₂ levels, fan power and capture rate must all fall within physically sensible limits.
+4. **Physical logic** — the CO₂ leaving the plant must always be lower than the CO₂ entering it. If it isn't, the reading is rejected.
+
+Readings that fail any check are not just deleted — they are saved to `output/rejected_records.csv` along with a plain-English reason (for example, "pressure out of range"), so nothing disappears silently.
+
+Full rules are documented in [`docs/data-quality.md`](docs/data-quality.md).
+
+## KPIs calculated
+
+The pipeline works out CO₂ removed, capture rate, energy used per kilogram captured, capture efficiency, and how the plant compares to a defined nominal target. These targets are simulation assumptions only — not real engineering limits. Full definitions are in [`docs/kpis.md`](docs/kpis.md).
 
 ## Repository structure
 
 ```text
 .
+├── .github/workflows/         # CI: runs the tests automatically on every push
 ├── data/raw/                  # Synthetic input historian export
 ├── data/processed/            # Generated SQLite database (ignored by Git)
 ├── docs/                      # KPI definitions and data-quality rules
-├── output/                    # Reproducible dashboard and run summary
-├── tests/                     # Validation and pipeline tests
+├── output/                    # Dashboard, run summary, and rejected records
+├── tests/                     # Automated tests for the validation rules
 ├── generate_scada_data.py     # Creates the reproducible input data
 ├── run_etl.py                 # Validates, transforms, loads and reports
+├── pytest.ini                 # Lets pytest find run_etl.py from the tests folder
 ├── requirements.txt
 └── README.md
 ```
 
-## Run locally
-
-From the repository root:
+## Run it yourself
 
 ```bash
 python -m pip install -r requirements.txt
@@ -44,24 +70,27 @@ python generate_scada_data.py
 python run_etl.py
 ```
 
-Generated artefacts:
+This creates:
 
-- `output/dac_plant_dashboard.png` — time-series monitoring view
-- `output/etl_run_summary.md` — data-quality results and KPI summary
-- `data/processed/dac_scada.db` — SQLite table named `plant_readings`
+- `output/dac_plant_dashboard.png` — a chart of CO₂ levels and capture rate over time
+- `output/etl_run_summary.md` — a summary of what passed and failed, plus the KPIs
+- `output/rejected_records.csv` — every rejected reading, with a reason
+- `data/processed/dac_scada.db` — a SQLite database with a `plant_readings` table
 
-## KPI model
+## Tests and continuous integration
 
-The pipeline calculates CO₂ removal, capture rate, energy intensity, adsorption/absorption performance and capacity utilisation. The performance and capacity measures are analytical indicators for this simulated dataset; they are not validated process-engineering specifications. Definitions and assumptions are documented in [`docs/kpis.md`](docs/kpis.md).
+Run the tests locally with:
 
-## Data-quality approach
+```bash
+pytest -v
+```
 
-The transformation stage parses timestamps, removes duplicate historian records, removes incomplete records, checks physical plausibility ranges, and applies the relationship `CO₂ outlet < CO₂ inlet`. Full rules are documented in [`docs/data-quality.md`](docs/data-quality.md).
-
-## Scope and limitations
-
-This repository is intentionally small and transparent. A production implementation would additionally require authenticated plant connectors, access control, secure secrets management, schema versioning, monitoring, retries, audit logging, alerting, approved engineering thresholds and deployment controls.
+Every time code is pushed to this repository, GitHub Actions automatically installs the project and runs these tests. If a test fails, it shows up immediately — this is what keeps the validation rules reliable as the project changes.
 
 ## Reproducibility
 
-The data generator uses a fixed random seed. Running the generator and ETL script recreates the same analytical scenario and output structure.
+The data generator uses a fixed random seed, so running it again produces the exact same dataset and results every time.
+
+## Scope and limitations
+
+This project is intentionally small and transparent, to show clear thinking rather than to imitate a production system. A real production pipeline would also need: secure connections to real plant systems, access control, secret management, schema versioning, monitoring and alerting, retry handling, audit logging, and engineering-approved thresholds set by real plant experts — not by me.
