@@ -1,0 +1,42 @@
+@startuml
+title DAC Plant Data Pipeline - Learning Demo
+
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam ArrowColor #315A87
+skinparam defaultFontName Arial
+
+package "Batch pipeline" {
+  file "Synthetic CSV" as CSV
+  component "Python ETL\nShared validation" as BatchValidation
+  database "SQLite\nTrusted readings" as SQLite
+  file "Rejected records\nwith reasons" as BatchRejects
+  component "KPI report and\nstatic dashboard" as BatchOutputs
+
+  CSV --> BatchValidation : extract
+  BatchValidation --> SQLite : valid rows
+  BatchValidation --> BatchRejects : invalid rows
+  SQLite --> BatchOutputs : analyse
+}
+
+package "Live pipeline" {
+  component "Synthetic plant\nsimulator" as Simulator
+  queue "MQTT broker\nMosquitto" as MQTT
+  component "Python listener\nShared validation" as LiveValidation
+  database "InfluxDB\nTime-series data" as InfluxDB
+  component "Grafana\nLive dashboard" as Grafana
+  file "Rejected stream\nrecords" as LiveRejects
+
+  Simulator --> MQTT : publish every 5 seconds
+  MQTT --> LiveValidation : subscribe
+  LiveValidation --> InfluxDB : trusted readings
+  LiveValidation --> LiveRejects : rejected readings
+  InfluxDB --> Grafana : query and display
+}
+
+note bottom
+  Synthetic learning data only.
+  No real plant or company system connection.
+end note
+@enduml
