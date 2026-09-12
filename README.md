@@ -19,20 +19,28 @@ A Python project that turns synthetic Direct Air Capture (DAC) plant readings in
 
 ### Batch pipeline
 
-```text
-Synthetic CSV -> Python validation -> trusted/rejected split
-              -> SQLite -> KPI report + dashboard
+```mermaid
+flowchart LR
+    A[Synthetic CSV] --> B[Python validation]
+    B -->|Trusted| C[(SQLite)]
+    B -->|Rejected| D[Rejected-record log]
+    C --> E[KPI report and dashboard]
 ```
 
 ### Optional live pipeline
 
-```text
-Plant simulator -> MQTT -> Python validation -> InfluxDB -> Grafana
-                              |
-                              -> rejected-record log
+```mermaid
+flowchart LR
+    A[Plant simulator] --> B[MQTT - Mosquitto]
+    B --> C[Python validation]
+    C -->|Trusted| D[(InfluxDB)]
+    C -->|Rejected| E[Rejected-record log]
+    D --> F[Grafana live dashboard]
 ```
 
 The live mode reuses the same validation rules as the batch mode, which prevents the two pipelines from applying different quality rules.
+
+The editable PlantUML source is available in [`docs/architecture.puml`](docs/architecture.puml).
 
 ## Verified results
 
