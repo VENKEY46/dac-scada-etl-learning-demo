@@ -18,6 +18,7 @@ RAW_FILE = Path("data/raw/dac_scada_readings.csv")
 DATABASE = Path("data/processed/dac_scada.db")
 REPORT = Path("output/etl_run_summary.md")
 DASHBOARD = Path("output/dac_plant_dashboard.png")
+REJECTED = Path("output/rejected_records.csv")
 NOMINAL_CAPTURE_EFFICIENCY = 0.42
 NOMINAL_CAPACITY_KG_H = 10.0
 
@@ -52,6 +53,36 @@ def validate_and_transform(raw: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, i
         & data["capture_rate_kg_h"].between(0.01, 20)
     )
     stats["range_or_logic_records_removed"] = int((~valid).sum())
+
+    # Keep the rejected rows with a plain-English reason, instead of just
+    # deleting them. A real plant engineer wants to know WHY a reading was
+    # rejected, not just how many were rejected.
+    rejected = data.loc[~valid].copy()
+    if not rejected.empty:
+        reasons = []
+        for _, row in rejected.iterrows():
+            row_reasons = []
+            if not (5 <= row["temperature_c"] <= 60):
+                row_reasons.append("temperature out of range")
+            if not (90 <= row["pressure_kpa"] <= 110):
+                row_reasons.append("pressure out of range")
+            if not (100 <= row["airflow_m3_h"] <= 10_000):
+                row_reasons.append("airflow out of range")
+            if not (350 <= row["co2_in_ppm"] <= 600):
+                row_reasons.append("CO2 inlet out of range")
+            if not (100 <= row["co2_out_ppm"] <= 600):
+                row_reasons.append("CO2 outlet out of range")
+            if row["co2_out_ppm"] >= row["co2_in_ppm"]:
+                row_reasons.append("outlet CO2 not lower than inlet CO2")
+            if not (1 <= row["fan_power_kw"] <= 100):
+                row_reasons.append("fan power out of range")
+            if not (0.01 <= row["capture_rate_kg_h"] <= 20):
+                row_reasons.append("capture rate out of range")
+            reasons.append("; ".join(row_reasons) if row_reasons else "unknown")
+        rejected["rejection_reason"] = reasons
+        REJECTED.parent.mkdir(parents=True, exist_ok=True)
+        rejected.to_csv(REJECTED, index=False)
+
     clean = data.loc[valid].copy()
 
     clean["co2_removed_ppm"] = (clean["co2_in_ppm"] - clean["co2_out_ppm"]).round(2)
